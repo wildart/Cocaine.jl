@@ -1,5 +1,8 @@
 module Cocaine
 
-# package code goes here
+export worker, CocaineRequest, CocaineResponse
+
+include("message.jl")
+include("worker.jl")
 
 end # module
