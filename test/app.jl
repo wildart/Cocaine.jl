@@ -1,12 +1,15 @@
 #!/usr/bin/env julia
 using Cocaine
 
-function echo(request::CocaineRequest, response::CocaineResponse)
-    data = read(request)
-    write(response, data)
-    close(response)
+function echo(req::CocaineRequest, resp::CocaineResponse)
+    data = read(req)
+    data = "Hello from Julia! $(data)"
+    write(resp, data)
 end
 
-#logger = Logger()
-binds = ["echo" => echo]
-worker(binds) # Assign binds and event loop
+binds = Dict{String, Function}({
+	"ping" => echo
+})
+worker(binds) # Assign binds and run event loop
+
+
