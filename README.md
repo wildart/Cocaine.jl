@@ -1,5 +1,5 @@
-# Cocaine Julia Framework
-This package helps you to write Julia application for PaaS Cocaine.
+# Cocaine Julia Framework [![Build Status](https://travis-ci.org/wildart/Cocaine.jl.png?branch=master)](https://travis-ci.org/wildart/Cocaine.jl)
+This package helps you to write Julia application for [PaaS Cocaine](https://github.com/cocaine/cocaine-core).
 
 ## Installation
 ```
@@ -8,8 +8,8 @@ Pkg.clone("https://github.com/wildart/Cocaine.jl.git")
 ```
 
 ## Example
-This's aexample of echo application:
-```go
+This's an example of 'echo' application:
+```julia
 using Cocaine
 
 function echo(req::Cocaine.Request, resp::Cocaine.Response)

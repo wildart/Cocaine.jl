@@ -11,3 +11,4 @@ before_install:
 script:
   - julia -e 'Pkg.init(); run(`ln -s $(pwd()) $(Pkg.dir("Cocaine"))`); Pkg.pin("Cocaine"); Pkg.resolve()'
   - julia -e 'using Cocaine; @assert isdefined(:Cocaine); @assert typeof(Cocaine) === Module'
+  - julia test/runtests.jl
