@@ -16,47 +16,30 @@ module TestStream
 	Base.wait_readnb(s::MockStream, i::Int) = ()
 	reset(s::MockStream) = s.buffer.ptr = 1
 	
-	# WritebleStream 
-	#################
-
 	s = MockStream()
-	t = Cocaine.CocaineStream(Cocaine.WritebleStream, s)
+	t = Cocaine.CocaineStream(Cocaine.RWStream, s)
 
 	# Writing to stream
 	@test write(t, 1) == 1
 	@test write(t, "aa") == 2
 	@test write(t, [2, 3, 4]) == 3
+
+	# Read from stream
+	@test bytestring(read(t)) == TEST_STR
+	reset(s)
+	@test bytestring(read(t)) == TEST_STR
+	reset(s)
 	
 	# Cannot write into closed stream
 	close(t)
 	@test_throws ErrorException write(t,"aa")
+	@test_throws ErrorException read(t)
 
 	# Close underling stream
-	t = Cocaine.CocaineStream(Cocaine.WritebleStream, s)
+	t = Cocaine.CocaineStream(Cocaine.RWStream, s)
 	close(s)
 	# Cannot write into closed underling stream
 	@test_throws ErrorException write(t,"aa")
-
-	
-	# ReadableStream 
-	#################
-
-	s = MockStream()
-	t = Cocaine.CocaineStream(Cocaine.ReadableStream, s, false)
-
-	# Writing to stream
-	@test bytestring(read(t)) == TEST_STR
-	reset(s)
-	@test bytestring(read(t)) == TEST_STR
-
-	# Cannot read closed stream
-	close(t)
 	@test_throws ErrorException read(t)
 
-	# Close underling stream	
-	t = Cocaine.CocaineStream(Cocaine.ReadableStream, s, false)
-	reset(s)
-	close(s)
-	# Cannot write into closed underling stream
-	@test_throws ErrorException read(t)
 end
