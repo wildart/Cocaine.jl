@@ -17,20 +17,20 @@ end
 function RequestProxy(queue, cond)
 	println("RP: Start proxy")
 	while true
-		h = wait(cond)
+		wait(cond)
 		#println("RP: Woke up!, $(length(queue)), $(h)")
-		if h == REQUEST_READ
-			if length(queue) > 0
-				msg = shift!(queue)
+		if length(queue) > 0
+			mtype, msg = shift!(queue)
+			if mtype == :Read									
 				#println("RP: Sending: $(msg)")
 				produce1((msg, :Msg))
-				#println("RP: MSG sent!")
-			end
-		elseif h == REQUEST_QUIT
-			break
-		else
-			produce1((h, :Error))
-		end		
+				#println("RP: MSG sent!")				
+			elseif mtype == :Quit
+				break
+			elseif mtype == :Error
+				produce1((msg, :Error))
+			end	
+		end	
 	end
 	println("RP: Finished!")
 end
@@ -55,22 +55,24 @@ function Base.close(req::CocaineRequest)
 	if istaskdone(req.request)
 		error("Request is closed")
 	end
-	notify(req.cond, REQUEST_QUIT)
+	push!(req.queue, (:Quit, true))
+	notify(req.cond)
 end
 
 function Base.push!(req::CocaineRequest, data)
 	if istaskdone(req.request)
 		error("Request is closed")
 	end
-	push!(req.queue, data)
-	notify(req.cond, REQUEST_READ)
+	push!(req.queue, (:Read, data))
+	notify(req.cond)
 end
 
 function Base.error(req::CocaineRequest, msg)
 	if istaskdone(req.request)
 		error("Request is closed")
 	end
-	notify(req.cond, msg)
+	push!(req.queue, (:Error, msg))
+	notify(req.cond)
 end
 
 function produce1(v)    
