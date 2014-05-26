@@ -1,53 +1,98 @@
+const REQUEST_READ = 1
+const REQUEST_QUIT = 2
+
 type CocaineRequest
-	request::Task	
-	CocaineRequest(stream_func::Function, init::Bool=true) = 
-		CocaineStream(current_task(), stream_func, stream, init)
-	function CocaineRequest(ct, stream_func::Function, init::Bool)
-		t = @task stream_func(ct)
-		if init
-			yieldto(t)
-		end
-		new(t)
+	request::Task
+	cond::Condition
+	queue::Array{Any,1}	
+
+	function CocaineRequest(stream_func::Function)
+		queue = Any[]
+		c = Condition()
+		t = @schedule stream_func(queue, c)		
+		new(t, c, queue)
 	end
 end
 
-function RequestProxy(ct)
-	quit = false			
-	while !quit					
-		println("start consume")
-		mdata, mtype = consume(ct)
-		println("end consume")
-		if mtype == :Push			
-			println("start produce")
-			r = produce(mdata)
-			println("end produce: ", r)
-		elseif mtype == :Quit
-			quit = true
-		end				
-		if quit
-			println("quit")			
+function RequestProxy(queue, cond)
+	println("RP: Start proxy")
+	while true
+		h = wait(cond)
+		#println("RP: Woke up!, $(length(queue)), $(h)")
+		if h == REQUEST_READ
+			if length(queue) > 0
+				msg = shift!(queue)
+				#println("RP: Sending: $(msg)")
+				produce1((msg, :Msg))
+				#println("RP: MSG sent!")
+			end
+		elseif h == REQUEST_QUIT
 			break
-		end						
-	end	
-	println("end loop")	
-	yieldto(ct)
+		else
+			produce1((h, :Error))
+		end		
+	end
+	println("RP: Finished!")
 end
 
 create_request() = CocaineRequest(RequestProxy)
 
-function sandbox(eval::Function, req::CocaineRequest)
-    eval(req)   
-    consume(req, false) 
-end
-
 function Base.read(req::CocaineRequest)
-	consume(req, true)
-end
-
-function Base.push!(req::CocaineRequest, data)
-	yieldto(req, (data, :Push))
+	if istaskdone(req.request)
+		error("Request is closed")
+	end	
+	msg = consume(req.request)
+	if msg === nothing
+		error("Request is closed")
+	elseif msg[2] == :Msg
+		return msg[1]
+	else msg[2] == :Error
+		error(msg[1])
+	end
 end
 
 function Base.close(req::CocaineRequest)
-	yieldto(req, (true, :Quit))
+	if istaskdone(req.request)
+		error("Request is closed")
+	end
+	notify(req.cond, REQUEST_QUIT)
+end
+
+function Base.push!(req::CocaineRequest, data)
+	if istaskdone(req.request)
+		error("Request is closed")
+	end
+	push!(req.queue, data)
+	notify(req.cond, REQUEST_READ)
+end
+
+function Base.error(req::CocaineRequest, msg)
+	if istaskdone(req.request)
+		error("Request is closed")
+	end
+	notify(req.cond, msg)
+end
+
+function produce1(v)    
+    ct = current_task()
+    local empty, t, q    
+    while true
+        q = ct.consumers
+        if isa(q,Task)
+            t = q
+            ct.consumers = nothing
+            empty = true
+            break
+        end
+        wait()
+    end
+
+    t.state = :runnable    
+    println("PRODUCE: suspend")
+    if empty        
+		yieldto(t, v)
+    else
+        schedule(t, v)        
+    end
+    println("PRODUCE: recover")
 end

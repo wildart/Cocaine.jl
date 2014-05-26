@@ -6,7 +6,8 @@ using Cocaine
 
 my_tests = [
 			"message.jl",
-			"stream.jl"
+			"stream.jl",
+			"session.jl"
            ]
 
 println("Running tests:")
