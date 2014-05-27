@@ -140,7 +140,7 @@ function event_loop(w::Worker, binds::Dict{String,Function})
             println("Receive chunk: $(sid)")
             session = get(w.sessions, sid, nothing)
             if session !== nothing
-                push!(session, msg.Data)
+                push!(session, Msgpack.unpack(msg.Data))
             else
                 error("Unable to push data for session $(sid)")
             end

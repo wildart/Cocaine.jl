@@ -42,8 +42,8 @@ end
 
 type Chunk <: Message
     MsgInfo::MessageInfo
-    Data::Any
-    Chunk(ch::Int64, data::Any) = new(MessageInfo(CHUNK, ch), data)
+    Data::Vector{Uint8}
+    Chunk(ch::Int64, data::Vector{Uint8}) = new(MessageInfo(CHUNK, ch), data)
 end
 
 type Error <: Message
@@ -97,7 +97,7 @@ function unpack(msg::Array{Uint8,1})
 	elseif unpkd[1] == INVOKE
 		return Invoke(unpkd[2], unpkd[3][1])
 	elseif unpkd[1] == CHUNK
-		return Chunk(unpkd[2], unpkd[3][1])
+		return Chunk(unpkd[2], convert(Vector{Uint8}, unpkd[3][1]))
 	elseif unpkd[1] == ERROR
 		return Error(unpkd[2], unpkd[3][1], unpkd[3][2])
 	elseif unpkd[1] == CHOKE
