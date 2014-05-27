@@ -33,3 +33,13 @@ function parse_endpoint(ep::String)
     end
     return addr, port
 end
+
+function decode(data::Array{Uint8,1})
+    msgs = Any[]
+    msg_indx = findin(data, 0x93) # Dirty hack: no streaming decoding so separate manually           
+    push!(msg_indx, length(data))
+    for i = 1 : (length(msg_indx)-1)
+        push!(msgs, unpack(data[msg_indx[i]:msg_indx[i+1]]))
+    end
+    msgs
+end

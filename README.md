@@ -24,7 +24,7 @@ worker(binds)
 ```
 
 ## Note
-All data received from service is packed in msgpack format.
+All data sent to and received from service is msgpacked.
 
 ## Links
 [Cocaine PaaS project](https://github.com/cocaine/)

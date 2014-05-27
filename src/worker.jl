@@ -90,18 +90,9 @@ function _send_heartbeat(w::Worker)
     start_timer(w.heartbeat, HEARTBEAT_TIMEOUT, 0)    
 end
 
-function decode(data::Array{Uint8,1})
-    msgs = Message[]
-    msg_indx = findin(data, 0x93) # Dirty hack: no streaming decoding so separate manually           
-    push!(msg_indx, length(data))
-    for i = 1 : (length(msg_indx)-1)
-        push!(msgs, unpack(data[msg_indx[i]:msg_indx[i+1]]))
-    end
-    msgs
-end
+function event_loop(w::Worker, binds::Dict{String,Function}, exit)                 
 
-function event_loop(w::Worker, binds::Dict{String,Function})                 
-    println("W: start read")
+    # Start read incomming data
     Base.wait_readnb(w.pipe, 1)
     data = takebuf_array(w.pipe.buffer)
 
@@ -115,17 +106,18 @@ function event_loop(w::Worker, binds::Dict{String,Function})
             #stop_timer(w.disown)
 
         elseif isa(msg, Terminate)
-            info("Receive terminate. $(msg.Reason), $(msg.Message)")
-            @async write(w.pipe, pack(Terminate(0, msg.Reason, msg.Message)))   
-            w.loop = false
+            println("Receive terminate. $(msg.Reason), $(msg.Message)")
+            @async write(w.pipe, pack(Terminate(0, msg.Reason, msg.Message)))               
+            notify(exit)
+            return
 
         elseif isa(msg, Invoke)
             sid = sessionid(msg)
             println("Receive invoke $(msg.Event) in session $(sid)")
+            req = CocaineRequest()
             resp = CocaineResponse(sid, w)
             callback = get(binds, msg.Event, nothing)
-            if callback !== nothing
-                req = create_request()
+            if callback !== nothing                
                 w.sessions[sid] = req
                 @async callback(req, resp)
             else
@@ -151,7 +143,7 @@ function event_loop(w::Worker, binds::Dict{String,Function})
             session = get(w.sessions, sid, nothing)
             if session !== nothing
                 close(session)
-                # delete!(w.sessions, sid) // dispose later
+                delete!(w.sessions, sid)
             end
 
         elseif isa(msg, Error)
@@ -167,17 +159,8 @@ function event_loop(w::Worker, binds::Dict{String,Function})
 
     end
 
-    # Cleanup sessions
-    for sid in keys(w.sessions)
-        session = get(w.sessions, sid, nothing)
-        if session !== nothing && istaskdone(session.request)
-            println("Removed session: $(sid)")           
-            delete!(w.sessions, sid)
-        end
-    end    
-
     # Start new iteration asynchronously
-    @async event_loop(wrk, binds)
+    @async event_loop(w, binds, exit)
 end
 
 function worker(binds::Dict{String,Function})
@@ -187,11 +170,11 @@ function worker(binds::Dict{String,Function})
         error("Parameters are not specified: uuid, endpoint")
     else
         wrk = create_worker(parsed_args)        
-        @async event_loop(wrk, binds)
-        while wrk.loop                        
-            sleep(1.)        
-        end
 
+        exit = Condition()        
+        @async event_loop(wrk, binds, exit)
+        wait(@async wait(exit))
+        
         # Cleanup        
         close(wrk.pipe)
     end

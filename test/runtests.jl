@@ -5,8 +5,7 @@
 using Cocaine
 
 my_tests = [
-			"message.jl",
-			"stream.jl",
+			"message.jl",			
 			"session.jl"
            ]
 
