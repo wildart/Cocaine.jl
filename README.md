@@ -12,7 +12,7 @@ This's an example of 'echo' application:
 ```julia
 using Cocaine
 
-function echo(req::Cocaine.Request, resp::Cocaine.Response)
+function echo(req::CocaineRequest, resp::CocaineResponse)
     data = read(req)    
     write(resp, data)
 end
@@ -22,6 +22,9 @@ binds = Dict{String, Function}({
 })
 worker(binds)
 ```
+
+## Note
+All data received from service is packed in msgpack format.
 
 ## Links
 [Cocaine PaaS project](https://github.com/cocaine/)

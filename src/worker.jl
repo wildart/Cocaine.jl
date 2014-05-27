@@ -1,10 +1,11 @@
+using Msgpack
+
 const HEARTBEAT_TIMEOUT = 30.0
 const DISOWN_TIMEOUT    = 5.0
 
 type Worker
     uuid::String
-    pipe::Base.AsyncStream
-    stream::CocaineStream    
+    pipe::Base.AsyncStream    
     sessions::Dict{Int, CocaineRequest} 
     heartbeat::Any
     disown::Any
@@ -19,8 +20,9 @@ type CocaineResponse
 end
 
 function Base.write(resp::CocaineResponse, chunk)
+    println("Send chunk from session response $(resp.session)")
     if !resp.quit
-        _send_chunk(resp.worker, resp.session, data)
+        _send_chunk(resp.worker, resp.session, Msgpack.pack(chunk))        
     end
 end
 
@@ -49,10 +51,9 @@ function create_worker(args::Dict{String,Any})
     sessions = Dict{Int, CocaineRequest}()
     
     addr, port = parse_endpoint(args["endpoint"])
-    pipe = port === nothing ? connect(addr) : connect(addr, port)      
-    stream = CocaineStream(RWStream, pipe)        
+    pipe = port === nothing ? connect(addr) : connect(addr, port)            
 
-    w = Worker(workerID, pipe, stream, sessions, nothing, nothing, true)
+    w = Worker(workerID, pipe, sessions, nothing, nothing, true)
     w.heartbeat = Timer((t,s)->_send_heartbeat(w))
     w.disown = Timer((t,s)->w.loop = false) 
         
@@ -66,10 +67,10 @@ function _send_error(w::Worker, sid, code, msg)
     @async write(w.pipe, pack(Error(sid, code, msg)))
 end
 
-function _send_chunk(w::Worker, sid, chunk)       
-    println("Send chunk from session $(sid)")
-    #data = Msgpack.pack(chunk)
-    @async write(w.pipe, pack(Chunk(sid, chunk)))
+function _send_chunk(w::Worker, sid, chunk)           
+    data = pack(Chunk(sid, chunk))
+    println("Send chunk from session $(sid): $(data)")
+    @async write(w.pipe, data)
 end
 
 function _send_choke(w::Worker, sid::Int)
@@ -85,7 +86,7 @@ end
 function _send_heartbeat(w::Worker)
     println("Send heartbeat. Start disown timer")
     @async write(w.pipe, pack(Heartbeat(0)))
-    start_timer(w.disown, DISOWN_TIMEOUT, 0)
+    #start_timer(w.disown, DISOWN_TIMEOUT, 0)
     start_timer(w.heartbeat, HEARTBEAT_TIMEOUT, 0)    
 end
 
@@ -99,83 +100,84 @@ function decode(data::Array{Uint8,1})
     msgs
 end
 
-function event_loop(w::Worker, binds::Dict{String,Function})    
-    while w.loop                
-        println("W: start read")
-        data = read(w.stream) # Receive data from stream
-        println("W: done reading: $(data)")
-        msgs = decode(data) # Decode them into internal messages        
-        for msg in msgs # process messages
-            println("W: Process message $(msg)")
+function event_loop(w::Worker, binds::Dict{String,Function})                 
+    println("W: start read")
+    Base.wait_readnb(w.pipe, 1)
+    data = takebuf_array(w.pipe.buffer)
 
-            if isa(msg, Heartbeat)
-                println("Receive heartbeat. Stop disown timer")
-                stop_timer(w.disown)
+    println("W: done reading: $(data)")
+    msgs = decode(data) # Decode them into internal messages        
+    for msg in msgs # process messages
+        println("W: Process message $(msg)")
 
-            elseif isa(msg, Terminate)
-                info("Receive terminate. $(msg.Reason), $(msg.Message)")
-                @async write(w.pipe, pack(Terminate(0, msg.Reason, msg.Message)))   
-                w.loop = false
-                break
+        if isa(msg, Heartbeat)
+            println("Receive heartbeat. Stop disown timer")
+            #stop_timer(w.disown)
 
-            elseif isa(msg, Invoke)
-                sid = sessionid(msg)
-                println("Receive invoke $(msg.Event) in session $(sid)")
-                resp = CocaineResponse(sid, w)
-                callback = get(binds, msg.Event, nothing)
-                if callback !== nothing
-                    req = create_request()
-                    w.sessions[sid] = req
-                    @schedule callback(req, resp)
-                    sleep(0.1)
-                else
-                    errMsg ="There is no event handler for $(msg.Event)"
-                    println(errMsg)
-                    _send_error(resp, -100, errMsg)
-                    close(resp)
-                end
+        elseif isa(msg, Terminate)
+            info("Receive terminate. $(msg.Reason), $(msg.Message)")
+            @async write(w.pipe, pack(Terminate(0, msg.Reason, msg.Message)))   
+            w.loop = false
 
-            elseif isa(msg, Chunk)
-                sid = sessionid(msg)
-                println("Receive chunk: $(sid)")
-                session = get(w.sessions, sid, nothing)
-                if session !== nothing
-                    push!(session, msg.Data)
-                else
-                    error("Unable to push data for session $(sid)")
-                end
-
-            elseif isa(msg, Choke)       
-                sid = sessionid(msg) 
-                println("Receive choke: $(sid)")
-                session = get(w.sessions, sid, nothing)
-                if session !== nothing
-                    close(session)
-                    # delete!(w.sessions, sid) // dispose later
-                end
-
-            elseif isa(msg, Error)
-                println("Error: $(msg)")
-                session = get(w.sessions, sessionid(msg), nothing)
-                if session !== nothing
-                    error(session, msg.Message)                    
-                end
-
-            elseif isa(msg, Internal)
-                error(msg.Message)
+        elseif isa(msg, Invoke)
+            sid = sessionid(msg)
+            println("Receive invoke $(msg.Event) in session $(sid)")
+            resp = CocaineResponse(sid, w)
+            callback = get(binds, msg.Event, nothing)
+            if callback !== nothing
+                req = create_request()
+                w.sessions[sid] = req
+                @async callback(req, resp)
+            else
+                errMsg ="There is no event handler for $(msg.Event)"
+                println(errMsg)
+                _send_error(resp, -100, errMsg)
+                close(resp)
             end
 
-        end
-
-        # Cleanup sessions
-        for sid in keys(w.sessions)
+        elseif isa(msg, Chunk)
+            sid = sessionid(msg)
+            println("Receive chunk: $(sid)")
             session = get(w.sessions, sid, nothing)
-            if session !== nothing && istaskdone(session.request)
-                println("Removed session: $(sid)")           
-                delete!(w.sessions, sid)
+            if session !== nothing
+                push!(session, msg.Data)
+            else
+                error("Unable to push data for session $(sid)")
             end
+
+        elseif isa(msg, Choke)       
+            sid = sessionid(msg) 
+            println("Receive choke: $(sid)")
+            session = get(w.sessions, sid, nothing)
+            if session !== nothing
+                close(session)
+                # delete!(w.sessions, sid) // dispose later
+            end
+
+        elseif isa(msg, Error)
+            println("Error: $(msg)")
+            session = get(w.sessions, sessionid(msg), nothing)
+            if session !== nothing
+                error(session, msg.Message)                    
+            end
+
+        elseif isa(msg, Internal)
+            error(msg.Message)
         end
+
     end
+
+    # Cleanup sessions
+    for sid in keys(w.sessions)
+        session = get(w.sessions, sid, nothing)
+        if session !== nothing && istaskdone(session.request)
+            println("Removed session: $(sid)")           
+            delete!(w.sessions, sid)
+        end
+    end    
+
+    # Start new iteration asynchronously
+    @async event_loop(wrk, binds)
 end
 
 function worker(binds::Dict{String,Function})
@@ -184,10 +186,13 @@ function worker(binds::Dict{String,Function})
     if isa(parsed_args["uuid"], Nothing) || isa(parsed_args["endpoint"], Nothing)
         error("Parameters are not specified: uuid, endpoint")
     else
-        wrk = create_worker(parsed_args)
-        event_loop(wrk, binds)
+        wrk = create_worker(parsed_args)        
+        @async event_loop(wrk, binds)
+        while wrk.loop                        
+            sleep(1.)        
+        end
+
         # Cleanup        
-        close(wrk.stream)
         close(wrk.pipe)
     end
     quit()

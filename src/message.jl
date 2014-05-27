@@ -77,7 +77,7 @@ function pack{T<:Message}(msg::T)
 	elseif typeof(msg) <: Invoke
 		push!(payload, string(getfield(msg, :Event)))
 	elseif typeof(msg) <: Chunk
-		push!(payload, getfield(msg, :Data))
+		push!(payload, bytestring(getfield(msg, :Data)))
 	elseif typeof(msg) <: Error || typeof(msg) <: Internal
 		push!(payload, getfield(msg, :Code))
 		push!(payload, string(getfield(msg, :Message)))

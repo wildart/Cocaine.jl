@@ -1,7 +1,7 @@
 using ArgParse
-using Lumberjack
-Lumberjack.remove_truck("console")
-Lumberjack.add_truck(LumberjackTruck("/tmp/julia_worker.log"), "worker")
+#using Lumberjack
+#Lumberjack.remove_truck("console")
+#Lumberjack.add_truck(LumberjackTruck("/tmp/julia_worker.log"), "worker")
 
 function parse_commandline()
     s = ArgParseSettings()
