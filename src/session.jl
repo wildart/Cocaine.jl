@@ -1,100 +1,52 @@
-const REQUEST_READ = 1
-const REQUEST_QUIT = 2
-
-type CocaineRequest
-	request::Task
+type CocaineRequest	
 	cond::Condition
-	queue::Array{Any,1}	
+	queue::Array{Any,1}
+	quit::Bool
 
-	function CocaineRequest(stream_func::Function)
-		queue = Any[]
-		c = Condition()
-		t = @schedule stream_func(queue, c)		
-		new(t, c, queue)
-	end
+	CocaineRequest() = new(Condition(), Any[], false)
 end
 
-function RequestProxy(queue, cond)
-	println("RP: Start proxy")
-	while true
-		wait(cond)
-		#println("RP: Woke up!, $(length(queue)), $(h)")
-		if length(queue) > 0
-			mtype, msg = shift!(queue)
-			if mtype == :Read									
-				#println("RP: Sending: $(msg)")
-				produce1((msg, :Msg))
-				#println("RP: MSG sent!")				
-			elseif mtype == :Quit
-				break
-			elseif mtype == :Error
-				produce1((msg, :Error))
-			end	
-		end	
-	end
-	println("RP: Finished!")
-end
-
-create_request() = CocaineRequest(RequestProxy)
-
+# On sandbox side
 function Base.read(req::CocaineRequest)
-	if istaskdone(req.request)
+	if req.quit
 		error("Request is closed")
 	end	
-	msg = consume(req.request)
-	if msg === nothing
+	req.cond = Condition()
+	wait(req.cond)
+	if length(req.queue) > 0 && !req.quit
+		mtype, msg = shift!(req.queue)
+		if mtype == :Read
+			return msg
+		else mtype == :Error
+			req.quit = true
+			error(msg)
+		end
+	else
 		error("Request is closed")
-	elseif msg[2] == :Msg
-		return msg[1]
-	else msg[2] == :Error
-		error(msg[1])
 	end
 end
 
+# On worker side
 function Base.close(req::CocaineRequest)
-	if istaskdone(req.request)
+	if req.quit
 		error("Request is closed")
 	end
-	push!(req.queue, (:Quit, true))
+	req.quit = true
 	notify(req.cond)
 end
 
 function Base.push!(req::CocaineRequest, data)
-	if istaskdone(req.request)
+	if req.quit
 		error("Request is closed")
 	end
-	push!(req.queue, (:Read, data))
+	push!(req.queue, (:Read, data))	
 	notify(req.cond)
 end
 
 function Base.error(req::CocaineRequest, msg)
-	if istaskdone(req.request)
+	if req.quit
 		error("Request is closed")
 	end
 	push!(req.queue, (:Error, msg))
 	notify(req.cond)
-end
-
-function produce1(v)    
-    ct = current_task()
-    local empty, t, q    
-    while true
-        q = ct.consumers
-        if isa(q,Task)
-            t = q
-            ct.consumers = nothing
-            empty = true
-            break
-        end
-        wait()
-    end
-
-    t.state = :runnable    
-    println("PRODUCE: suspend")
-    if empty        
-		yieldto(t, v)
-    else
-        schedule(t, v)        
-    end
-    println("PRODUCE: recover")
 end
