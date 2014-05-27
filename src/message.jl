@@ -29,9 +29,9 @@ end
 
 type Terminate <: Message
     MsgInfo::MessageInfo
-    Reason::String
+    Reason::Int
     Message::String
-    Terminate(ch::Int64, reason::String, message::String) = new(MessageInfo(TERMINATE, ch), reason, message)
+    Terminate(ch::Int64, reason::Int, message::String) = new(MessageInfo(TERMINATE, ch), reason, message)
 end
 
 type Invoke <: Message
@@ -72,7 +72,7 @@ function pack{T<:Message}(msg::T)
 	if typeof(msg) <: Handshake
 		push!(payload, string(getfield(msg, :Uuid)))
 	elseif typeof(msg) <: Terminate
-		push!(payload, string(getfield(msg, :Reason)))
+		push!(payload, getfield(msg, :Reason))
 		push!(payload, string(getfield(msg, :Message)))
 	elseif typeof(msg) <: Invoke
 		push!(payload, string(getfield(msg, :Event)))

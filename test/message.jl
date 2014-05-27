@@ -35,7 +35,7 @@ u = Cocaine.unpack(p)
 @test typeof(msg) == typeof(u)
 @test msg.MsgInfo.Session == u.MsgInfo.Session
 
-msg = Cocaine.Terminate(ch, msg1, msg2)
+msg = Cocaine.Terminate(ch, -1, msg2)
 p = Cocaine.pack(msg)
 u = Cocaine.unpack(p)
 @test typeof(msg) == typeof(u)
